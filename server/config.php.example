@@ -1,0 +1,23 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Copy to config.php (chmod 600). Never commit config.php.
+ * Local default paths assume the repo root is the parent of server/.
+ */
+return [
+    'jwt_secret'         => 'GENERATE_WITH_openssl_rand_-base64_48',
+    'data_dir'           => dirname(__DIR__) . '/data',
+    'seed_admin_email'   => 'pawel@kunstman.net',
+    'seed_admin_password'=> 'alamakota123',
+    'public_base_url'    => 'http://localhost:5173',
+    'api_base_url'       => 'http://127.0.0.1:8080',
+    'cookie_domain'      => '', // e.g. '.quiz.example.com' in production
+    'cors_origins'       => ['http://localhost:5173'],
+    'max_upload_mb'      => 50,
+    'app_env'            => 'local', // local | production
+    // Passwordless admin entry for automation (min 32 chars). Leave placeholder to disable.
+    // Local: http://localhost:5173/admin/enter?t=YOUR_TOKEN
+    'admin_magic_token'  => 'GENERATE_WITH_openssl_rand_-hex_32',
+];

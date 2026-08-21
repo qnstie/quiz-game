@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Fraunces", Georgia, serif;
+  --font-sans: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
+  --color-ink: #1c1917;
+  --color-paper: #faf7f2;
+  --color-accent: #0f766e;
+  --color-accent-soft: #ccfbf1;
+  --color-warm: #c2410c;
+  --color-muted: #78716c;
+  --color-line: #e7e5e4;
+}
+
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(ellipse 120% 80% at 10% -20%, #fde68a55, transparent 50%),
+    radial-gradient(ellipse 100% 60% at 100% 0%, #99f6e455, transparent 45%),
+    var(--color-paper);
+  color: var(--color-ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background:
+      radial-gradient(ellipse 120% 80% at 10% -20%, #78350f44, transparent 50%),
+      radial-gradient(ellipse 100% 60% at 100% 0%, #134e4a55, transparent 45%),
+      #1c1917;
+    color: #fafaf9;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.rich-content img,
+.rich-content video {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+}
+
+.rich-content iframe {
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  border: 0;
+  border-radius: 0.5rem;
+}
+
+.safe-pad {
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}

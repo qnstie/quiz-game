@@ -1,0 +1,16 @@
+{
+  "name": "family-quiz",
+  "private": true,
+  "workspaces": [
+    "web"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w web",
+    "dev:api": "php -S 127.0.0.1:8080 -t server/public server/public/router.php",
+    "build": "npm run build -w web",
+    "typecheck": "npm run typecheck -w web",
+    "test": "npm run test -w web",
+    "test:server": "composer -d server test",
+    "lint:server": "composer -d server phpstan"
+  }
+}

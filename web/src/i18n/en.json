@@ -1,0 +1,70 @@
+{
+  "landing": {
+    "titleFallback": "Family Quiz",
+    "subtitle": "Enter your name to join",
+    "nameLabel": "Your name",
+    "namePlaceholder": "e.g. Anna",
+    "pinLabel": "PIN (4 digits)",
+    "join": "Join",
+    "continueAs": "Continue as {{name}}",
+    "notYou": "Not you?",
+    "pickProject": "Choose a quiz",
+    "noProject": "No quiz is open yet. Check back soon."
+  },
+  "quizzes": {
+    "title": "Quizzes",
+    "progress": "answered {{answered}} of {{total}}",
+    "progress_one": "answered {{answered}} of {{total}}",
+    "progress_few": "answered {{answered}} of {{total}}",
+    "progress_many": "answered {{answered}} of {{total}}",
+    "start": "Start",
+    "resume": "Continue",
+    "summaryTitle": "You're done!",
+    "summaryBody": "You answered {{answered}} of {{total}}",
+    "unanswered": "Jump to unanswered"
+  },
+  "quiz": {
+    "progressTap": "Quiz list",
+    "submitting": "Saving…",
+    "saved": "Saved"
+  },
+  "blocked": {
+    "title": "Hang tight",
+    "body": "The quiz is being updated — back in a moment."
+  },
+  "closed": {
+    "title": "Answers are closed",
+    "body": "Results coming soon. Keep this page open."
+  },
+  "results": {
+    "title": "Your results",
+    "score": "Score {{score}} / {{max}}",
+    "rank": "Rank {{rank}}",
+    "leaderboard": "Leaderboard",
+    "correct": "Correct",
+    "incorrect": "Incorrect",
+    "unanswered": "No answer",
+    "explanation": "Explanation",
+    "feedback": "About your answer"
+  },
+  "common": {
+    "loading": "Loading…",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "language": "Language",
+    "back": "Back",
+    "installHint": "Install this app for easier access",
+    "installIos": "On iPhone: tap Share, then Add to Home Screen",
+    "dismiss": "Dismiss"
+  },
+  "errors": {
+    "VALIDATION": "Please check what you entered",
+    "UNAUTHENTICATED": "Please join again",
+    "FORBIDDEN": "Not allowed",
+    "NOT_FOUND": "Not found",
+    "LOCKED": "The quiz isn't open for that right now",
+    "CONFLICT": "Please try again",
+    "TOO_LARGE": "File is too large",
+    "NETWORK": "Network problem — retrying…"
+  }
+}

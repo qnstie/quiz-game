@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+server/vendor/
+
+# Build
+web/dist/
+web/dev-dist/
+
+# Config & secrets
+server/config.php
+.env
+.env.local
+
+# Data
+data/
+!data/.gitkeep
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.log
+
+# PHPUnit / coverage
+server/coverage/
+server/.phpunit.cache/
+server/.phpstan.cache/
+
+# Misc
+*.local
+.turbo/

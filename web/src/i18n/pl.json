@@ -1,0 +1,69 @@
+{
+  "landing": {
+    "titleFallback": "Family Quiz",
+    "subtitle": "Wpisz imię, żeby dołączyć",
+    "nameLabel": "Twoje imię",
+    "namePlaceholder": "np. Ania",
+    "pinLabel": "PIN (4 cyfry)",
+    "join": "Dołącz",
+    "continueAs": "Kontynuuj jako {{name}}",
+    "notYou": "To nie Ty?",
+    "pickProject": "Wybierz quiz",
+    "noProject": "Quiz jeszcze nie jest otwarty. Wróć wkrótce."
+  },
+  "quizzes": {
+    "title": "Pytania",
+    "progress_one": "udzielono {{answered}} z {{total}} odpowiedzi",
+    "progress_few": "udzielono {{answered}} z {{total}} odpowiedzi",
+    "progress_many": "udzielono {{answered}} z {{total}} odpowiedzi",
+    "start": "Start",
+    "resume": "Kontynuuj",
+    "summaryTitle": "To już wszystko!",
+    "summaryBody": "Odpowiedziałeś/aś na {{answered}} z {{total}}",
+    "unanswered": "Przejdź do bez odpowiedzi"
+  },
+  "quiz": {
+    "progressTap": "Lista pytań",
+    "submitting": "Zapisywanie…",
+    "saved": "Zapisano"
+  },
+  "blocked": {
+    "title": "Chwilka",
+    "body": "Quiz jest aktualizowany — zaraz wracamy."
+  },
+  "closed": {
+    "title": "Odpowiedzi zamknięte",
+    "body": "Wyniki wkrótce. Zostaw tę stronę otwartą."
+  },
+  "results": {
+    "title": "Twoje wyniki",
+    "score": "Wynik {{score}} / {{max}}",
+    "rank": "Miejsce {{rank}}",
+    "leaderboard": "Ranking",
+    "correct": "Dobrze",
+    "incorrect": "Źle",
+    "unanswered": "Brak odpowiedzi",
+    "explanation": "Wyjaśnienie",
+    "feedback": "O Twojej odpowiedzi"
+  },
+  "common": {
+    "loading": "Ładowanie…",
+    "error": "Coś poszło nie tak",
+    "retry": "Spróbuj ponownie",
+    "language": "Język",
+    "back": "Wstecz",
+    "installHint": "Zainstaluj aplikację dla wygody",
+    "installIos": "Na iPhonie: udostępnij → Dodaj do ekranu początkowego",
+    "dismiss": "Zamknij"
+  },
+  "errors": {
+    "VALIDATION": "Sprawdź wprowadzone dane",
+    "UNAUTHENTICATED": "Dołącz ponownie",
+    "FORBIDDEN": "Brak dostępu",
+    "NOT_FOUND": "Nie znaleziono",
+    "LOCKED": "Quiz nie jest teraz otwarty na tę czynność",
+    "CONFLICT": "Spróbuj ponownie",
+    "TOO_LARGE": "Plik jest za duży",
+    "NETWORK": "Problem z siecią — ponawiam…"
+  }
+}
