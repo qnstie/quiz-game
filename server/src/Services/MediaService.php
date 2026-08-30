@@ -55,7 +55,7 @@ final class MediaService
         };
 
         $id = Id::uuid();
-        $storedRel = 'media/' . $id . '.' . $ext;
+        $storedRel = 'uploads/' . $id . '.' . $ext;
         $dest = Connections::projectDir($projectId) . '/' . $storedRel;
 
         $width = null;

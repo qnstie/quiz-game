@@ -10,12 +10,30 @@ use InvalidArgumentException;
 
 final class StateService
 {
-    private const STATES = ['SETUP', 'ACTIVE', 'CLOSED', 'REVEALED'];
+    private const STATES = ['SETUP', 'TEST', 'ACTIVE', 'CLOSED', 'REVEALED'];
 
     public function __construct(
         private ProjectsRepo $projects,
         private ScoringService $scoring,
     ) {}
+
+    /** Content CRUD allowed in SETUP (private) and TEST (live for testers). */
+    public static function isContentMutable(?string $state): bool
+    {
+        return in_array($state ?? '', ['SETUP', 'TEST'], true);
+    }
+
+    /** Participants may submit / change answers. */
+    public static function isAnswerable(?string $state): bool
+    {
+        return in_array($state ?? '', ['ACTIVE', 'TEST'], true);
+    }
+
+    /** Project is visible on the participant bootstrap (not SETUP-only drafting). */
+    public static function isParticipantVisible(?string $state): bool
+    {
+        return ($state ?? '') !== '' && ($state ?? '') !== 'SETUP';
+    }
 
     public function transition(string $projectId, string $newState): array
     {
@@ -44,17 +62,25 @@ final class StateService
             }
         }
 
-        if ($newState === 'ACTIVE' && in_array($from, ['CLOSED', 'REVEALED'], true)) {
+        if (in_array($newState, ['ACTIVE', 'TEST'], true) && in_array($from, ['CLOSED', 'REVEALED'], true)) {
             $fields['results_stale'] = 1;
         }
 
-        return $this->projects->update($projectId, $fields);
+        $project = $this->projects->update($projectId, $fields);
+
+        // Make the project visible to participants as soon as it goes live or into test.
+        if (in_array($newState, ['ACTIVE', 'TEST'], true)) {
+            $this->projects->setSetting('active_project_id', $projectId);
+            $this->projects->setSetting('public_project_id', $projectId);
+        }
+
+        return $project;
     }
 
     public function assertContentMutable(?array $project): void
     {
-        if (!$project || $project['state'] !== 'SETUP') {
-            $state = $project['state'] ?? 'UNKNOWN';
+        $state = $project['state'] ?? 'UNKNOWN';
+        if (!$project || !self::isContentMutable($state)) {
             throw new LockedException($state);
         }
     }

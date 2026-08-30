@@ -77,21 +77,26 @@ Single state per project, authoritative in the app DB. Unchanged from the Node v
         ┌──────────┐   open    ┌────────┐  wrap up  ┌────────┐  reveal  ┌──────────┐
         │ SETUP    │──────────▶│ ACTIVE │──────────▶│ CLOSED │─────────▶│ REVEALED │
         │(blocked) │◀──────────│        │◀──────────│        │◀─────────│          │
-        └──────────┘   block   └────────┘  re-open  └────────┘  hide    └──────────┘
+        └────┬─────┘           └────────┘           └────────┘          └──────────┘
+             │                    ▲
+             │     TEST           │
+             └────────────────────┘
+           (editable + joinable)
 ```
 
 | State | Participants | Superuser |
 |---|---|---|
 | `SETUP` (blocked) | "The quiz is being updated, back in a moment" screen. Any write returns **423 Locked**. | Full content CRUD. Project switcher visible. |
-| `ACTIVE` | Join, answer, resume, navigate. No results anywhere. | Content CRUD **blocked** (must switch to SETUP first). Live progress view. |
+| `TEST` | Join, answer, resume like ACTIVE. Sees live content while admins still edit. | Full content CRUD (same as SETUP). Sets public/active project. |
+| `ACTIVE` | Join, answer, resume, navigate. No results anywhere. | Content CRUD **blocked** (must switch to SETUP or TEST first). Live progress view. |
 | `CLOSED` | "Answers are closed, results coming soon." | Scores computed. Full results, per-participant drill-down, presentation mode. |
 | `REVEALED` | Own full results (own answers, correctness, feedback comments) **and** the leaderboard (names + scores only). | Same as CLOSED. |
 
 Rules:
 - Any transition is allowed in either direction; backwards transitions require a confirm dialog.
 - Entering `CLOSED` runs the scoring job synchronously and stamps `results_computed_at`.
-- Entering `ACTIVE` from `CLOSED`/`REVEALED` sets `results_stale = 1` without deleting results; recomputed on the next close.
-- `SETUP` is the only state where the **project switcher** is visible.
+- Entering `ACTIVE` or `TEST` from `CLOSED`/`REVEALED` sets `results_stale = 1` without deleting results; recomputed on the next close.
+- `SETUP` is the only state where participants are blocked from the project entirely.
 
 ---
 
@@ -118,7 +123,7 @@ CREATE TABLE projects (
   slug            TEXT NOT NULL UNIQUE,
   title           TEXT NOT NULL,
   state           TEXT NOT NULL DEFAULT 'SETUP'
-                  CHECK (state IN ('SETUP','ACTIVE','CLOSED','REVEALED')),
+                  CHECK (state IN ('SETUP','TEST','ACTIVE','CLOSED','REVEALED')),
   db_path         TEXT NOT NULL,               -- projects/<id>/project.db
   shuffle_quizzes INTEGER NOT NULL DEFAULT 0,
   require_pin     INTEGER NOT NULL DEFAULT 0,

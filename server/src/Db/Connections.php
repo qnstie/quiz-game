@@ -66,9 +66,9 @@ final class Connections
         if (!is_dir($dir) && !mkdir($dir, 0750, true) && !is_dir($dir)) {
             throw new RuntimeException("Cannot create project dir: {$dir}");
         }
-        $media = $dir . '/media';
-        if (!is_dir($media) && !mkdir($media, 0750, true) && !is_dir($media)) {
-            throw new RuntimeException("Cannot create media dir: {$media}");
+        $uploads = $dir . '/uploads';
+        if (!is_dir($uploads) && !mkdir($uploads, 0750, true) && !is_dir($uploads)) {
+            throw new RuntimeException("Cannot create uploads dir: {$uploads}");
         }
         return $dir;
     }

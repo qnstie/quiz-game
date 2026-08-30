@@ -1,0 +1,41 @@
+Options -Indexes
+DirectoryIndex index.html
+
+# Deny direct access to secrets
+<Files "config.php">
+  Require all denied
+</Files>
+
+# Keep SPA shell fresh so participant bootstrap isn't stuck on an old PWA bundle.
+<IfModule mod_headers.c>
+  <FilesMatch "\.(html|webmanifest)$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+  </FilesMatch>
+</IfModule>
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  # @@REWRITE_BASE@@ injected by deploy, e.g. /familyquiz/
+  RewriteBase @@REWRITE_BASE@@
+
+  # Pass Authorization to PHP (needed for Agent API Bearer tokens)
+  RewriteCond %{HTTP:Authorization} .
+  RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+  # Route /api|/health|/media to the gateway FIRST.
+  # Never [F]orbid ^api here — clients call those same URL paths.
+  RewriteRule ^(api|health|media)(/.*)?$ public/gateway.php [QSA,L]
+
+  # Static files from public/
+  RewriteCond %{DOCUMENT_ROOT}@@REWRITE_BASE@@public/$1 -f
+  RewriteRule ^(.*)$ public/$1 [L]
+
+  # App shell
+  RewriteRule ^$ public/index.html [L]
+
+  # SPA client routes
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteRule ^(.*)$ public/index.html [L]
+</IfModule>

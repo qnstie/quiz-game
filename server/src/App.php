@@ -20,6 +20,7 @@ use FamilyQuiz\Repo\ResultsRepo;
 use FamilyQuiz\Repo\SuperusersRepo;
 use FamilyQuiz\Repo\UsersRepo;
 use FamilyQuiz\Routes\AdminRoutes;
+use FamilyQuiz\Routes\AgentRoutes;
 use FamilyQuiz\Routes\PublicRoutes;
 use FamilyQuiz\Services\AuthService;
 use FamilyQuiz\Services\ExportService;
@@ -91,6 +92,11 @@ final class App
         $container = $builder->build();
         $app = \DI\Bridge\Slim\Bridge::create($container);
 
+        $basePath = $configBag->pathPrefix();
+        if ($basePath !== '') {
+            $app->setBasePath($basePath);
+        }
+
         $app->addBodyParsingMiddleware();
 
         $origins = $config['cors_origins'] ?? ['http://localhost:5173'];
@@ -122,6 +128,7 @@ final class App
 
         PublicRoutes::register($app);
         AdminRoutes::register($app, $container->get(AdminAuthMiddleware::class));
+        AgentRoutes::register($app, $configBag);
 
         return $app;
     }

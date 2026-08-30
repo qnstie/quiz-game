@@ -20,4 +20,6 @@ return [
     // Passwordless admin entry for automation (min 32 chars). Leave placeholder to disable.
     // Local: http://localhost:5173/admin/enter?t=YOUR_TOKEN
     'admin_magic_token'  => 'GENERATE_WITH_openssl_rand_-hex_32',
+    // Optional dedicated token for /api/agent (LLM API). Falls back to admin_magic_token when unset/empty.
+    // 'agent_api_token' => 'GENERATE_WITH_openssl_rand_-hex_32',
 ];

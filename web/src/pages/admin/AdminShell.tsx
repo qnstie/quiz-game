@@ -1,6 +1,7 @@
-import { type FormEvent, useState } from 'react'
-import { Link, Navigate, Outlet, useNavigate } from 'react-router-dom'
+import { type FormEvent, useRef, useState } from 'react'
+import { Link, NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { LogOut } from 'lucide-react'
 import { api, ApiError } from '../../api/client'
 
 type Me = {
@@ -24,9 +25,11 @@ export function AdminLoginPage() {
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const busyRef = useRef(false)
 
   const login = useMutation({
-    mutationFn: () => api('/api/admin/login', { method: 'POST', json: { email, password } }),
+    mutationFn: (creds: { email: string; password: string }) =>
+      api('/api/admin/login', { method: 'POST', json: creds }),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['admin-me'] })
       navigate('/admin/projects')
@@ -34,22 +37,47 @@ export function AdminLoginPage() {
     onError: (e: unknown) => {
       setError(e instanceof ApiError ? e.message : 'Login failed')
     },
+    onSettled: () => {
+      busyRef.current = false
+    },
   })
 
-  const onSubmit = (e: FormEvent) => {
+  const onSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    login.mutate()
+    e.stopPropagation()
+    if (busyRef.current || login.isPending) return
+
+    const fd = new FormData(e.currentTarget)
+    const nextEmail = String(fd.get('email') ?? email).trim()
+    const nextPassword = String(fd.get('password') ?? password)
+    if (!nextEmail || !nextPassword) {
+      setError('Email and password are required')
+      return
+    }
+
+    busyRef.current = true
+    setEmail(nextEmail)
+    setPassword(nextPassword)
+    setError(null)
+    login.mutate({ email: nextEmail, password: nextPassword })
   }
 
   return (
-    <div className="min-h-dvh flex items-center justify-center p-6">
-      <form onSubmit={onSubmit} className="w-full max-w-md space-y-4 rounded-2xl border border-[var(--color-line)] bg-white/80 dark:bg-stone-900 p-6">
-        <h1 className="font-display text-2xl font-bold">Admin login</h1>
+    <div className="min-h-dvh flex items-center justify-center p-6 bg-[var(--color-paper)]">
+      {/* Enter and click both go through onSubmit once — no separate key handler. */}
+      <form
+        onSubmit={onSubmit}
+        className="w-full max-w-md space-y-4 border border-[var(--color-line)] bg-white p-6"
+        noValidate
+      >
+        <h1 className="font-display text-xl font-bold">Admin login</h1>
         <label className="block space-y-1">
           <span className="text-sm font-semibold">Email</span>
           <input
-            className="w-full min-h-12 rounded-xl border border-[var(--color-line)] px-3"
+            className="input-field"
             type="email"
+            name="email"
+            autoComplete="username"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -58,17 +86,24 @@ export function AdminLoginPage() {
         <label className="block space-y-1">
           <span className="text-sm font-semibold">Password</span>
           <input
-            className="w-full min-h-12 rounded-xl border border-[var(--color-line)] px-3"
+            className="input-field"
             type="password"
+            name="password"
+            autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
           />
         </label>
         {error && <p className="text-sm text-red-700">{error}</p>}
-        <button type="submit" className="w-full min-h-12 rounded-xl bg-[var(--color-ink)] text-white font-semibold">
-          Sign in
+        <button type="submit" className="btn-primary w-full" disabled={login.isPending}>
+          {login.isPending ? 'Signing in…' : 'Sign in'}
         </button>
+        <p className="text-center text-sm text-[var(--color-muted)] pt-1">
+          <Link to="/" className="text-[var(--color-accent)] hover:underline">
+            Back to quiz (participant access)
+          </Link>
+        </p>
       </form>
     </div>
   )
@@ -98,23 +133,38 @@ export function AdminShell() {
   ] as const
 
   return (
-    <div className="min-h-dvh">
-      <header className="border-b border-[var(--color-line)] bg-white/70 dark:bg-stone-950/70 backdrop-blur sticky top-0 z-20">
+    <div className="min-h-dvh bg-[var(--color-paper)]">
+      <header className="border-b-2 border-[var(--color-line)] bg-[var(--color-paper)] sticky top-0 z-20">
         <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap gap-3 items-center justify-between">
-          <div className="font-display font-bold text-lg">Family Quiz Admin</div>
-          <nav className="flex flex-wrap gap-2 text-sm">
+          <div className="font-display font-bold text-lg tracking-tight">Family Quiz Admin</div>
+          <nav className="flex flex-wrap gap-1 text-sm">
             {links.map(([label, to]) => (
-              <Link key={to} to={to} className="min-h-10 px-2 inline-flex items-center hover:underline">
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) =>
+                  `min-h-10 px-2 inline-flex items-center ${
+                    isActive
+                      ? 'text-[var(--color-accent-strong)] font-semibold'
+                      : 'text-[var(--color-ink)] hover:text-[var(--color-accent-strong)]'
+                  }`
+                }
+              >
                 {label}
-              </Link>
+              </NavLink>
             ))}
-            <button type="button" onClick={() => void logout()} className="min-h-10 px-2 text-[var(--color-muted)]">
+            <button
+              type="button"
+              onClick={() => void logout()}
+              className="min-h-10 px-2 inline-flex items-center gap-1.5 text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+            >
+              <LogOut size={14} aria-hidden />
               Log out
             </button>
           </nav>
         </div>
         {me.data?.seedPasswordWarning && (
-          <div className="bg-amber-100 text-amber-950 text-sm px-4 py-2 text-center">
+          <div className="bg-[var(--color-accent-soft)] text-[var(--color-accent-strong)] text-sm px-4 py-2 text-center">
             Seed admin password is still in use — change it under Users.
           </div>
         )}

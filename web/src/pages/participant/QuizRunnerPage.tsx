@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSwipeable } from 'react-swipeable'
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
+import { ChevronLeft, List } from 'lucide-react'
 import { api } from '../../api/client'
 import { RichContent } from '../../components/RichContent'
 import { ProgressBar } from '../../components/ProgressBar'
@@ -19,6 +20,14 @@ type QuizDetail = {
 
 type AnswerRes = { next: string | null; answeredCount: number; total: number }
 
+const AUTO_ADVANCE_KEY = 'fq_auto_advance'
+
+function readAutoAdvance(): boolean {
+  const raw = localStorage.getItem(AUTO_ADVANCE_KEY)
+  if (raw === null) return true
+  return raw === '1' || raw === 'true'
+}
+
 export function QuizRunnerPage() {
   const { quizId = '' } = useParams()
   const navigate = useNavigate()
@@ -26,6 +35,9 @@ export function QuizRunnerPage() {
   const qc = useQueryClient()
   const [selected, setSelected] = useState<string | null>(null)
   const [tick, setTick] = useState(false)
+  const [autoAdvance, setAutoAdvance] = useState(readAutoAdvance)
+  const autoAdvanceRef = useRef(autoAdvance)
+  autoAdvanceRef.current = autoAdvance
 
   const listQ = useQuery({
     queryKey: ['quizzes'],
@@ -54,7 +66,6 @@ export function QuizRunnerPage() {
         dequeueAnswer(quizId)
         return res
       } catch (e) {
-        // keep in outbox for retry
         throw e
       }
     },
@@ -62,6 +73,7 @@ export function QuizRunnerPage() {
       setTick(true)
       void qc.invalidateQueries({ queryKey: ['quizzes'] })
       void qc.invalidateQueries({ queryKey: ['quiz', quizId] })
+      if (!autoAdvanceRef.current) return
       window.setTimeout(() => {
         if (res.next) navigate(`/q/${res.next}`)
         else navigate('/quizzes')
@@ -78,6 +90,12 @@ export function QuizRunnerPage() {
         .catch(() => undefined)
     }
   }, [])
+
+  useEffect(() => {
+    if (quizQ.isError || listQ.isError) {
+      navigate('/', { replace: true })
+    }
+  }, [quizQ.isError, listQ.isError, navigate])
 
   const ids = listQ.data?.quizzes.map((q) => q.id) ?? []
   const idx = ids.indexOf(quizId)
@@ -99,23 +117,68 @@ export function QuizRunnerPage() {
     trackMouse: true,
   })
 
+  if (quizQ.isError) {
+    return <p className="py-12 text-center text-[var(--color-muted)]">{t('common.loading')}</p>
+  }
+
   if (quizQ.isLoading || !quizQ.data) {
     return <p className="py-12 text-center text-[var(--color-muted)]">{t('common.loading')}</p>
   }
 
   const quiz = quizQ.data
+  const savedId = quiz.selectedOptionId
+  const dirty = selected !== null && selected !== savedId
+  const canSubmit = !autoAdvance && selected !== null && (dirty || !savedId) && !submit.isPending
+
+  const onPick = (optionId: string) => {
+    setSelected(optionId)
+    setTick(false)
+    if (autoAdvance) {
+      submit.mutate(optionId)
+    }
+  }
+
+  const onToggleAutoAdvance = (checked: boolean) => {
+    setAutoAdvance(checked)
+    localStorage.setItem(AUTO_ADVANCE_KEY, checked ? '1' : '0')
+  }
 
   return (
     <section className="py-4 space-y-5" {...swipe}>
-      <ProgressBar
-        answered={listQ.data?.answeredCount ?? 0}
-        total={listQ.data?.total ?? 0}
-        onClick={() => navigate('/quizzes')}
-      />
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          className="shrink-0 min-h-11 px-3 inline-flex items-center gap-2 border border-[var(--color-line)] bg-white/70 text-sm font-semibold hover:bg-[var(--color-accent-soft)]"
+          onClick={() => navigate('/quizzes')}
+        >
+          <List size={16} aria-hidden />
+          {t('quiz.backToList')}
+        </button>
+        <div className="flex-1 min-w-0">
+          <ProgressBar
+            answered={listQ.data?.answeredCount ?? 0}
+            total={listQ.data?.total ?? 0}
+            onClick={() => navigate('/quizzes')}
+            hint={t('quiz.progressTap')}
+          />
+        </div>
+      </div>
+
+      {prev && (
+        <button
+          type="button"
+          className="min-h-11 px-3 inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--color-accent)] hover:underline"
+          onClick={() => navigate(`/q/${prev}`)}
+        >
+          <ChevronLeft size={18} aria-hidden />
+          {t('quiz.previous')}
+        </button>
+      )}
+
       <motion.div key={quiz.id} initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.25 }}>
         <h1 className="font-display text-2xl sm:text-3xl font-bold leading-tight">{quiz.title}</h1>
         {quiz.description_html && (
-          <div className="mt-4 rounded-2xl bg-white/60 dark:bg-stone-900/60 p-4 border border-[var(--color-line)]">
+          <div className="mt-4 rounded-2xl bg-white p-4 border border-[var(--color-line)]">
             <RichContent html={quiz.description_html} />
           </div>
         )}
@@ -127,19 +190,16 @@ export function QuizRunnerPage() {
                 <button
                   type="button"
                   disabled={submit.isPending}
-                  onClick={() => {
-                    setSelected(o.id)
-                    submit.mutate(o.id)
-                  }}
-                  className={`w-full min-h-14 text-left rounded-2xl border px-4 py-3 transition-all ${
+                  onClick={() => onPick(o.id)}
+                  className={`w-full min-h-14 text-left rounded-2xl px-4 py-3 transition-all text-[var(--color-ink)] bg-white ${
                     isSel
-                      ? 'border-[var(--color-accent)] bg-[var(--color-accent-soft)] scale-[1.01] shadow-sm'
-                      : 'border-[var(--color-line)] bg-white/50 dark:bg-stone-900/50 hover:border-[var(--color-accent)]'
+                      ? 'border-[3px] border-[#c23b2a] shadow-[0_0_0_1px_#c23b2a] scale-[1.01]'
+                      : 'border border-[var(--color-line)] hover:border-[var(--color-muted)]'
                   }`}
                 >
                   <div className="flex items-start gap-3">
                     <RichContent html={o.label_html || '—'} className="flex-1" />
-                    {isSel && tick && <span className="text-[var(--color-accent)] text-xl">✓</span>}
+                    {isSel && tick && <span className="text-[#c23b2a] text-xl font-bold">✓</span>}
                   </div>
                 </button>
               </li>
@@ -147,6 +207,28 @@ export function QuizRunnerPage() {
           })}
         </ul>
       </motion.div>
+
+      <div className="space-y-3 pt-2 border-t border-[var(--color-line)]">
+        {!autoAdvance && (
+          <button
+            type="button"
+            disabled={!canSubmit}
+            onClick={() => selected && submit.mutate(selected)}
+            className="w-full min-h-14 rounded-2xl bg-[var(--color-accent)] text-white font-semibold text-lg disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {submit.isPending ? t('quiz.submitting') : tick && !dirty ? t('quiz.saved') : t('quiz.submit')}
+          </button>
+        )}
+        <label className="flex items-center gap-3 min-h-11 cursor-pointer select-none text-sm">
+          <input
+            type="checkbox"
+            className="size-5 accent-[var(--color-accent)]"
+            checked={autoAdvance}
+            onChange={(e) => onToggleAutoAdvance(e.target.checked)}
+          />
+          <span>{t('quiz.autoAdvance')}</span>
+        </label>
+      </div>
     </section>
   )
 }

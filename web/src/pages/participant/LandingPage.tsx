@@ -102,7 +102,7 @@ export function LandingPage() {
         <label className="block space-y-1">
           <span className="text-sm font-semibold">{t('landing.nameLabel')}</span>
           <input
-            className="w-full min-h-14 rounded-xl border border-[var(--color-line)] bg-white/70 px-4 text-lg dark:bg-stone-900"
+            className="input-field text-lg min-h-14"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder={t('landing.namePlaceholder')}
@@ -116,7 +116,7 @@ export function LandingPage() {
           <label className="block space-y-1">
             <span className="text-sm font-semibold">{t('landing.pinLabel')}</span>
             <input
-              className="w-full min-h-14 rounded-xl border border-[var(--color-line)] bg-white/70 px-4 text-lg dark:bg-stone-900"
+              className="input-field text-lg min-h-14"
               value={pin}
               onChange={(e) => setPin(e.target.value)}
               inputMode="numeric"

@@ -115,4 +115,91 @@ final class QuizzesRepo
             }
         }, $pdo);
     }
+
+    /**
+     * Duplicate a quiz (and its options) into $toProjectId.
+     * When cloning in-place, appends " (copy)" to the title.
+     */
+    public function duplicate(
+        string $fromProjectId,
+        string $quizId,
+        string $toProjectId,
+        bool $appendCopySuffix = true,
+    ): array {
+        $src = $this->find($fromProjectId, $quizId);
+        if (!$src) {
+            throw new \InvalidArgumentException('Quiz not found');
+        }
+
+        $options = Connections::projectDb($fromProjectId)
+            ->prepare('SELECT * FROM options WHERE quiz_id = :qid ORDER BY position ASC');
+        $options->execute(['qid' => $quizId]);
+        $opts = $options->fetchAll();
+
+        $pdo = Connections::projectDb($toProjectId);
+        $maxPos = (int) $pdo->query('SELECT COALESCE(MAX(position), -1) FROM quizzes')->fetchColumn();
+        $newId = Id::uuid();
+        $now = Id::now();
+        $title = $src['title'];
+        if ($appendCopySuffix) {
+            $title .= ' (copy)';
+        }
+
+        Connections::withBusyRetry(function () use ($pdo, $src, $opts, $newId, $maxPos, $now, $title) {
+            $pdo->exec('BEGIN IMMEDIATE');
+            try {
+                $pdo->prepare(
+                    'INSERT INTO quizzes (id, position, title, description_html, explanation_html, points, shuffle_options, created_at, updated_at)
+                     VALUES (:id, :pos, :title, :desc, :expl, :points, :shuffle, :now, :now)'
+                )->execute([
+                    'id' => $newId,
+                    'pos' => $maxPos + 1,
+                    'title' => $title,
+                    'desc' => $src['description_html'],
+                    'expl' => $src['explanation_html'],
+                    'points' => $src['points'],
+                    'shuffle' => $src['shuffle_options'],
+                    'now' => $now,
+                ]);
+
+                $ins = $pdo->prepare(
+                    'INSERT INTO options (id, quiz_id, position, label_html, is_correct, feedback_html, created_at, updated_at)
+                     VALUES (:id, :quiz_id, :pos, :label, :correct, :feedback, :now, :now)'
+                );
+                foreach ($opts as $o) {
+                    $ins->execute([
+                        'id' => Id::uuid(),
+                        'quiz_id' => $newId,
+                        'pos' => $o['position'],
+                        'label' => $o['label_html'],
+                        'correct' => $o['is_correct'],
+                        'feedback' => $o['feedback_html'],
+                        'now' => $now,
+                    ]);
+                }
+                // If source had fewer/more than 4 somehow, still fine — we copy as-is.
+                $pdo->exec('COMMIT');
+            } catch (\Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $e;
+            }
+        }, $pdo);
+
+        return $this->find($toProjectId, $newId);
+    }
+
+    /** @param list<string> $quizIds */
+    public function deleteMany(string $projectId, array $quizIds): int
+    {
+        $count = 0;
+        foreach ($quizIds as $id) {
+            if ($this->find($projectId, $id)) {
+                $this->delete($projectId, $id);
+                $count++;
+            }
+        }
+        return $count;
+    }
 }

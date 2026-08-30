@@ -21,10 +21,16 @@
     "resume": "Continue",
     "summaryTitle": "You're done!",
     "summaryBody": "You answered {{answered}} of {{total}}",
-    "unanswered": "Jump to unanswered"
+    "unanswered": "Jump to unanswered",
+    "resetAnswers": "Reset all answers and start over",
+    "resetConfirm": "Clear all your answers and start from the beginning?"
   },
   "quiz": {
     "progressTap": "Quiz list",
+    "backToList": "All questions",
+    "previous": "Previous question",
+    "submit": "Submit answer",
+    "autoAdvance": "Go to next question automatically after answering",
     "submitting": "Saving…",
     "saved": "Saved"
   },

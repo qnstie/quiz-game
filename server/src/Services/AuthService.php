@@ -19,30 +19,32 @@ final class AuthService
 
     public function attemptLogin(string $email, string $password): ?array
     {
-        $pdo = Connections::appDb();
-        $stmt = $pdo->prepare(
-            'SELECT * FROM superusers WHERE email = :email COLLATE NOCASE AND is_active = 1 LIMIT 1'
-        );
-        $stmt->execute(['email' => trim($email)]);
-        $user = $stmt->fetch();
-        if (!$user || !password_verify($password, $user['password_hash'])) {
-            return null;
-        }
+        return Connections::withBusyRetry(function () use ($email, $password) {
+            $pdo = Connections::appDb();
+            $stmt = $pdo->prepare(
+                'SELECT * FROM superusers WHERE email = :email COLLATE NOCASE AND is_active = 1 LIMIT 1'
+            );
+            $stmt->execute(['email' => trim($email)]);
+            $user = $stmt->fetch();
+            if (!$user || !password_verify($password, $user['password_hash'])) {
+                return null;
+            }
 
-        // Opportunistic rehash if algo upgraded
-        $preferred = $this->seed->preferredAlgo();
-        if ($user['password_algo'] !== $preferred || password_needs_rehash($user['password_hash'], $this->algoConst($preferred))) {
-            $newHash = $this->seed->hashPassword($password, $preferred);
-            $upd = $pdo->prepare('UPDATE superusers SET password_hash = :h, password_algo = :a WHERE id = :id');
-            $upd->execute(['h' => $newHash, 'a' => $preferred, 'id' => $user['id']]);
-            $user['password_hash'] = $newHash;
-            $user['password_algo'] = $preferred;
-        }
+            // Opportunistic rehash if algo upgraded
+            $preferred = $this->seed->preferredAlgo();
+            if ($user['password_algo'] !== $preferred || password_needs_rehash($user['password_hash'], $this->algoConst($preferred))) {
+                $newHash = $this->seed->hashPassword($password, $preferred);
+                $upd = $pdo->prepare('UPDATE superusers SET password_hash = :h, password_algo = :a WHERE id = :id');
+                $upd->execute(['h' => $newHash, 'a' => $preferred, 'id' => $user['id']]);
+                $user['password_hash'] = $newHash;
+                $user['password_algo'] = $preferred;
+            }
 
-        $pdo->prepare('UPDATE superusers SET last_login_at = :now WHERE id = :id')
-            ->execute(['now' => Id::now(), 'id' => $user['id']]);
+            $pdo->prepare('UPDATE superusers SET last_login_at = :now WHERE id = :id')
+                ->execute(['now' => Id::now(), 'id' => $user['id']]);
 
-        return $user;
+            return $user;
+        });
     }
 
     public function issueAdminToken(array $user): string

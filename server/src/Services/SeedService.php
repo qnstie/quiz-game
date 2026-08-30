@@ -38,13 +38,19 @@ final class SeedService
     public function seedPasswordStillInUse(array $config): bool
     {
         $pdo = Connections::appDb();
-        $stmt = $pdo->prepare('SELECT password_hash, password_algo FROM superusers WHERE email = :email COLLATE NOCASE LIMIT 1');
+        $stmt = $pdo->prepare(
+            'SELECT password_hash FROM superusers WHERE email = :email COLLATE NOCASE AND is_active = 1 LIMIT 1'
+        );
         $stmt->execute(['email' => $config['seed_admin_email']]);
-        $row = $stmt->fetch();
-        if (!$row) {
+        $hash = $stmt->fetchColumn();
+        if (!is_string($hash) || $hash === '') {
             return false;
         }
-        return password_verify($config['seed_admin_password'], $row['password_hash']);
+        $seedPassword = (string) ($config['seed_admin_password'] ?? '');
+        if ($seedPassword === '') {
+            return false;
+        }
+        return password_verify($seedPassword, $hash);
     }
 
     public function hashPassword(string $password, string $algo): string

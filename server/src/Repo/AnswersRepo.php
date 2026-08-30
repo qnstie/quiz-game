@@ -59,4 +59,17 @@ final class AnswersRepo
             ->query('SELECT COUNT(*) FROM answers')
             ->fetchColumn();
     }
+
+    public function clearAll(string $projectId, string $userId): int
+    {
+        $pdo = Connections::userDb($projectId, $userId);
+        $count = (int) $pdo->query('SELECT COUNT(*) FROM answers')->fetchColumn();
+        $pdo->exec('DELETE FROM answers');
+        $now = Id::now();
+        $pdo->prepare('INSERT INTO activity (at, kind, detail) VALUES (:at, \'reset\', :d)')
+            ->execute(['at' => $now, 'd' => (string) $count]);
+        $pdo->prepare('INSERT OR REPLACE INTO profile (key, value) VALUES (\'answers_reset_at\', :v)')
+            ->execute(['v' => $now]);
+        return $count;
+    }
 }

@@ -4,17 +4,20 @@ export function ProgressBar({
   answered,
   total,
   onClick,
+  hint,
 }: {
   answered: number
   total: number
   onClick?: () => void
+  hint?: string
 }) {
   const pct = total > 0 ? Math.round((answered / total) * 100) : 0
   const inner = (
     <div className="w-full">
-      <div className="flex justify-between text-sm text-[var(--color-muted)] mb-1">
+      <div className="flex justify-between text-sm text-[var(--color-muted)] mb-1 gap-2">
         <span>
           {answered} / {total}
+          {hint ? <span className="opacity-70"> · {hint}</span> : null}
         </span>
         <span>{pct}%</span>
       </div>
@@ -28,7 +31,12 @@ export function ProgressBar({
   )
   if (onClick) {
     return (
-      <button type="button" className="w-full text-left min-h-12" onClick={onClick}>
+      <button
+        type="button"
+        className="w-full text-left min-h-12 rounded-xl px-1 -mx-1 hover:bg-black/[0.03]"
+        onClick={onClick}
+        aria-label={hint}
+      >
         {inner}
       </button>
     )

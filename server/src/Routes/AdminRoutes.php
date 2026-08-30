@@ -23,6 +23,7 @@ use FamilyQuiz\Services\ScoringService;
 use FamilyQuiz\Services\SeedService;
 use FamilyQuiz\Services\StateService;
 use FamilyQuiz\Support\ConfigBag;
+use FamilyQuiz\Support\SessionCookie;
 use FamilyQuiz\Support\JsonResponse;
 use Endroid\QrCode\QrCode;
 use Endroid\QrCode\Writer\SvgWriter;
@@ -36,7 +37,7 @@ final class AdminRoutes
     public static function register(App $app, AdminAuthMiddleware $authMw): void
     {
         $app->post('/api/admin/login', [self::class, 'login'])
-            ->add(new RateLimitMiddleware('login', 5, 900));
+            ->add(new RateLimitMiddleware('login', 5, 300, 'email', true));
         // Hidden automation entry: GET /api/admin/magic-login?t=<admin_magic_token>
         $app->get('/api/admin/magic-login', [self::class, 'magicLogin'])
             ->add(new RateLimitMiddleware('magic-login', 10, 900));
@@ -59,10 +60,17 @@ final class AdminRoutes
             $group->get('/projects/{id}/quizzes', [self::class, 'listQuizzes']);
             $group->post('/projects/{id}/quizzes', [self::class, 'createQuiz']);
             $group->post('/projects/{id}/quizzes/reorder', [self::class, 'reorderQuizzes']);
+            $group->post('/projects/{id}/quizzes/clone', [self::class, 'cloneQuizzes']);
+            $group->post('/projects/{id}/quizzes/copy', [self::class, 'copyQuizzes']);
+            $group->post('/projects/{id}/quizzes/batch-delete', [self::class, 'batchDeleteQuizzes']);
             $group->get('/quizzes/{quizId}', [self::class, 'getQuiz']);
             $group->patch('/quizzes/{quizId}', [self::class, 'patchQuiz']);
             $group->delete('/quizzes/{quizId}', [self::class, 'deleteQuiz']);
             $group->put('/quizzes/{quizId}/options', [self::class, 'putOptions']);
+
+            $group->post('/projects/{id}/media', [self::class, 'uploadProjectMedia'])
+                ->add(new RateLimitMiddleware('uploads', 30, 3600));
+            $group->get('/projects/{id}/media', [self::class, 'listProjectMedia']);
 
             $group->post('/media', [self::class, 'uploadMedia'])
                 ->add(new RateLimitMiddleware('uploads', 30, 3600));
@@ -71,6 +79,7 @@ final class AdminRoutes
 
             $group->get('/participants', [self::class, 'listParticipants']);
             $group->delete('/participants/{userId}', [self::class, 'deleteParticipant']);
+            $group->post('/participants/{userId}/reset-answers', [self::class, 'resetParticipantAnswers']);
 
             $group->get('/results', [self::class, 'results']);
             $group->get('/results/users/{userId}', [self::class, 'userResults']);
@@ -93,6 +102,7 @@ final class AdminRoutes
         if (!$user) {
             return JsonResponse::error('UNAUTHENTICATED', 'Invalid credentials', 401);
         }
+        RateLimitMiddleware::clearBucket('login', $email);
         $token = $auth->issueAdminToken($user);
         $cfg = $config->all();
         $response = JsonResponse::ok([
@@ -109,14 +119,10 @@ final class AdminRoutes
     public function logout(ConfigBag $config): ResponseInterface
     {
         $response = JsonResponse::ok(['ok' => true]);
-        $params = 'fq_admin=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0';
-        if (!empty($config->get('cookie_domain'))) {
-            $params .= '; Domain=' . $config->get('cookie_domain');
-        }
-        if ($config->get('app_env') === 'production') {
-            $params .= '; Secure';
-        }
-        return $response->withAddedHeader('Set-Cookie', $params);
+        return SessionCookie::apply(
+            $response,
+            SessionCookie::clearHeaders('fq_admin', $config->all()),
+        );
     }
 
     /**
@@ -250,9 +256,16 @@ final class AdminRoutes
             $fields['is_active'] = $active;
         }
         if (!empty($body['password'])) {
+            $password = (string) $body['password'];
+            if (strlen($password) < 8) {
+                return JsonResponse::error('VALIDATION', 'Password must be at least 8 characters', 400);
+            }
             $algo = $seed->preferredAlgo();
-            $fields['password_hash'] = $seed->hashPassword((string) $body['password'], $algo);
+            $fields['password_hash'] = $seed->hashPassword($password, $algo);
             $fields['password_algo'] = $algo;
+        }
+        if ($fields === []) {
+            return JsonResponse::error('VALIDATION', 'No changes provided', 400);
         }
         return JsonResponse::ok(['superuser' => $repo->update($id, $fields)]);
     }
@@ -318,17 +331,40 @@ final class AdminRoutes
         }
         $body = (array) ($request->getParsedBody() ?? []);
         $fields = [];
+        $needsMutable = array_key_exists('description_html', $body)
+            || array_key_exists('title', $body)
+            || array_key_exists('slug', $body)
+            || array_key_exists('shuffle_quizzes', $body)
+            || array_key_exists('require_pin', $body);
+        if ($needsMutable) {
+            try {
+                $state->assertContentMutable($project);
+            } catch (LockedException $e) {
+                return JsonResponse::error('LOCKED', 'Switch to SETUP or TEST to edit', 423, ['currentState' => $e->currentState]);
+            }
+        }
         foreach (['title', 'slug', 'shuffle_quizzes', 'require_pin'] as $k) {
             if (array_key_exists($k, $body)) {
                 $fields[$k] = $body[$k];
             }
         }
-        if (array_key_exists('description_html', $body)) {
-            try {
-                $state->assertContentMutable($project);
-            } catch (LockedException $e) {
-                return JsonResponse::error('LOCKED', 'Switch to SETUP to edit', 423, ['currentState' => $e->currentState]);
+        if (isset($fields['title'])) {
+            $fields['title'] = trim((string) $fields['title']);
+            if ($fields['title'] === '') {
+                return JsonResponse::error('VALIDATION', 'Title required', 400);
             }
+        }
+        if (isset($fields['slug'])) {
+            $fields['slug'] = trim((string) $fields['slug']);
+            if (!preg_match('/^[a-z0-9\-]+$/', $fields['slug'])) {
+                return JsonResponse::error('VALIDATION', 'Slug must be lowercase alphanumeric/hyphen', 400);
+            }
+            $existing = $projects->findBySlug($fields['slug']);
+            if ($existing && $existing['id'] !== $id) {
+                return JsonResponse::error('CONFLICT', 'Slug taken', 409);
+            }
+        }
+        if (array_key_exists('description_html', $body)) {
             $fields['description_html'] = $sanitizer->clean((string) $body['description_html']);
         }
         return JsonResponse::ok(['project' => $projects->update($id, $fields)]);
@@ -339,11 +375,6 @@ final class AdminRoutes
         $project = $projects->find($id);
         if (!$project) {
             return JsonResponse::error('NOT_FOUND', 'Not found', 404);
-        }
-        $body = (array) ($request->getParsedBody() ?? []);
-        $confirm = (string) ($body['confirm'] ?? $request->getQueryParams()['confirm'] ?? '');
-        if ($confirm !== $project['slug'] && $confirm !== $project['title']) {
-            return JsonResponse::error('VALIDATION', 'Type project title or slug to confirm', 400);
         }
         if ($projects->getSetting('active_project_id') === $id) {
             $projects->setSetting('active_project_id', null);
@@ -419,7 +450,7 @@ final class AdminRoutes
         try {
             $state->assertContentMutable($project);
         } catch (LockedException $e) {
-            return JsonResponse::error('LOCKED', 'Switch to SETUP to edit', 423, ['currentState' => $e->currentState]);
+            return JsonResponse::error('LOCKED', 'Switch to SETUP or TEST to edit', 423, ['currentState' => $e->currentState]);
         }
         $body = (array) ($request->getParsedBody() ?? []);
         $title = trim((string) ($body['title'] ?? 'Untitled quiz'));
@@ -442,7 +473,7 @@ final class AdminRoutes
         try {
             $state->assertContentMutable($project);
         } catch (LockedException $e) {
-            return JsonResponse::error('LOCKED', 'Switch to SETUP to edit', 423, ['currentState' => $e->currentState]);
+            return JsonResponse::error('LOCKED', 'Switch to SETUP or TEST to edit', 423, ['currentState' => $e->currentState]);
         }
         $body = (array) ($request->getParsedBody() ?? []);
         $orderedIds = $body['orderedIds'] ?? [];
@@ -451,6 +482,101 @@ final class AdminRoutes
         }
         $quizzes->reorder($id, $orderedIds);
         return JsonResponse::ok(['ok' => true]);
+    }
+
+    public function cloneQuizzes(
+        ServerRequestInterface $request,
+        ProjectsRepo $projects,
+        QuizzesRepo $quizzes,
+        StateService $state,
+        string $id,
+    ): ResponseInterface {
+        $project = $projects->find($id);
+        if (!$project) {
+            return JsonResponse::error('NOT_FOUND', 'Not found', 404);
+        }
+        try {
+            $state->assertContentMutable($project);
+        } catch (LockedException $e) {
+            return JsonResponse::error('LOCKED', 'Switch to SETUP or TEST to edit', 423, ['currentState' => $e->currentState]);
+        }
+        $body = (array) ($request->getParsedBody() ?? []);
+        $quizIds = $body['quizIds'] ?? [];
+        if (!is_array($quizIds) || $quizIds === []) {
+            return JsonResponse::error('VALIDATION', 'quizIds required', 400);
+        }
+        $created = [];
+        foreach ($quizIds as $quizId) {
+            try {
+                $created[] = $quizzes->duplicate($id, (string) $quizId, $id, true);
+            } catch (\InvalidArgumentException) {
+                return JsonResponse::error('NOT_FOUND', 'Quiz not found: ' . $quizId, 404);
+            }
+        }
+        return JsonResponse::ok(['quizzes' => $created], 201);
+    }
+
+    public function copyQuizzes(
+        ServerRequestInterface $request,
+        ProjectsRepo $projects,
+        QuizzesRepo $quizzes,
+        StateService $state,
+        string $id,
+    ): ResponseInterface {
+        $project = $projects->find($id);
+        if (!$project) {
+            return JsonResponse::error('NOT_FOUND', 'Not found', 404);
+        }
+        $body = (array) ($request->getParsedBody() ?? []);
+        $targetId = (string) ($body['targetProjectId'] ?? '');
+        $target = $projects->find($targetId);
+        if (!$target) {
+            return JsonResponse::error('NOT_FOUND', 'Target project not found', 404);
+        }
+        try {
+            $state->assertContentMutable($target);
+        } catch (LockedException $e) {
+            return JsonResponse::error('LOCKED', 'Target project must be in SETUP or TEST', 423, ['currentState' => $e->currentState]);
+        }
+        $quizIds = $body['quizIds'] ?? [];
+        if (!is_array($quizIds) || $quizIds === []) {
+            return JsonResponse::error('VALIDATION', 'quizIds required', 400);
+        }
+        $created = [];
+        foreach ($quizIds as $quizId) {
+            try {
+                // Keep original title when copying across projects
+                $created[] = $quizzes->duplicate($id, (string) $quizId, $targetId, false);
+            } catch (\InvalidArgumentException) {
+                return JsonResponse::error('NOT_FOUND', 'Quiz not found: ' . $quizId, 404);
+            }
+        }
+        return JsonResponse::ok(['quizzes' => $created, 'targetProjectId' => $targetId], 201);
+    }
+
+    public function batchDeleteQuizzes(
+        ServerRequestInterface $request,
+        ProjectsRepo $projects,
+        QuizzesRepo $quizzes,
+        StateService $state,
+        string $id,
+    ): ResponseInterface {
+        $project = $projects->find($id);
+        if (!$project) {
+            return JsonResponse::error('NOT_FOUND', 'Not found', 404);
+        }
+        try {
+            $state->assertContentMutable($project);
+        } catch (LockedException $e) {
+            return JsonResponse::error('LOCKED', 'Switch to SETUP or TEST to edit', 423, ['currentState' => $e->currentState]);
+        }
+        $body = (array) ($request->getParsedBody() ?? []);
+        $quizIds = $body['quizIds'] ?? [];
+        if (!is_array($quizIds) || $quizIds === []) {
+            return JsonResponse::error('VALIDATION', 'quizIds required', 400);
+        }
+        $deleted = $quizzes->deleteMany($id, array_map('strval', $quizIds));
+        return JsonResponse::ok(['deleted' => $deleted]);
     }
 
     public function getQuiz(
@@ -470,6 +596,8 @@ final class AdminRoutes
         }
         $quiz['options'] = $options->listForQuiz($projectId, $quizId);
         $quiz['projectId'] = $projectId;
+        $project = $projects->find($projectId);
+        $quiz['projectState'] = $project['state'] ?? 'SETUP';
         return JsonResponse::ok(['quiz' => $quiz]);
     }
 
@@ -489,7 +617,7 @@ final class AdminRoutes
         try {
             $state->assertContentMutable($project);
         } catch (LockedException $e) {
-            return JsonResponse::error('LOCKED', 'Switch to SETUP to edit', 423, ['currentState' => $e->currentState]);
+            return JsonResponse::error('LOCKED', 'Switch to SETUP or TEST to edit', 423, ['currentState' => $e->currentState]);
         }
         $body = (array) ($request->getParsedBody() ?? []);
         $fields = [];
@@ -521,13 +649,10 @@ final class AdminRoutes
         try {
             $state->assertContentMutable($project);
         } catch (LockedException $e) {
-            return JsonResponse::error('LOCKED', 'Switch to SETUP to edit', 423, ['currentState' => $e->currentState]);
+            return JsonResponse::error('LOCKED', 'Switch to SETUP or TEST to edit', 423, ['currentState' => $e->currentState]);
         }
-        $body = (array) ($request->getParsedBody() ?? []);
-        $confirm = (string) ($body['confirm'] ?? '');
-        $quiz = $quizzes->find($projectId, $quizId);
-        if ($confirm !== ($quiz['title'] ?? '') && $confirm !== 'DELETE') {
-            return JsonResponse::error('VALIDATION', 'Type quiz title or DELETE to confirm', 400);
+        if (!$quizzes->find($projectId, $quizId)) {
+            return JsonResponse::error('NOT_FOUND', 'Not found', 404);
         }
         $quizzes->delete($projectId, $quizId);
         return JsonResponse::ok(['ok' => true]);
@@ -549,7 +674,7 @@ final class AdminRoutes
         try {
             $state->assertContentMutable($project);
         } catch (LockedException $e) {
-            return JsonResponse::error('LOCKED', 'Switch to SETUP to edit', 423, ['currentState' => $e->currentState]);
+            return JsonResponse::error('LOCKED', 'Switch to SETUP or TEST to edit', 423, ['currentState' => $e->currentState]);
         }
         $body = (array) ($request->getParsedBody() ?? []);
         $opts = $body['options'] ?? null;
@@ -573,31 +698,63 @@ final class AdminRoutes
         return JsonResponse::ok(['options' => $saved]);
     }
 
+    public function uploadProjectMedia(
+        ServerRequestInterface $request,
+        ProjectsRepo $projects,
+        MediaService $media,
+        ConfigBag $config,
+        string $id,
+    ): ResponseInterface {
+        if (!$projects->find($id)) {
+            return JsonResponse::error('NOT_FOUND', 'Project not found', 404);
+        }
+        return self::storeUploadedFile($request, $media, $config, $id);
+    }
+
     public function uploadMedia(
         ServerRequestInterface $request,
         ProjectsRepo $projects,
         MediaService $media,
+        ConfigBag $config,
     ): ResponseInterface {
         $projectId = $projects->getSetting('active_project_id');
         if (!$projectId) {
             return JsonResponse::error('VALIDATION', 'No active project', 400);
         }
+        return self::storeUploadedFile($request, $media, $config, $projectId);
+    }
+
+    public function listProjectMedia(
+        ProjectsRepo $projects,
+        MediaRepo $media,
+        ConfigBag $config,
+        string $id,
+    ): ResponseInterface {
+        if (!$projects->find($id)) {
+            return JsonResponse::error('NOT_FOUND', 'Project not found', 404);
+        }
+        return self::mediaListResponse($media, $config, $id);
+    }
+
+    private static function storeUploadedFile(
+        ServerRequestInterface $request,
+        MediaService $media,
+        ConfigBag $config,
+        string $projectId,
+    ): ResponseInterface {
         $files = $request->getUploadedFiles();
         $file = $files['file'] ?? null;
         if (!$file) {
             return JsonResponse::error('VALIDATION', 'file required', 400);
         }
-        $tmp = [
-            'error' => $file->getError(),
-            'size' => $file->getSize(),
-            'tmp_name' => $file->getStream()->getMetadata('uri') ?? '',
-            'name' => $file->getClientFilename(),
-        ];
-        // Slim uploaded files need move — write to temp
         $tempPath = tempnam(sys_get_temp_dir(), 'fqupload');
         $file->moveTo($tempPath);
-        $tmp['tmp_name'] = $tempPath;
-        $tmp['error'] = UPLOAD_ERR_OK;
+        $tmp = [
+            'error' => UPLOAD_ERR_OK,
+            'size' => $file->getSize(),
+            'tmp_name' => $tempPath,
+            'name' => $file->getClientFilename(),
+        ];
 
         $admin = $request->getAttribute('admin');
         try {
@@ -611,7 +768,7 @@ final class AdminRoutes
                 default => JsonResponse::error('VALIDATION', 'Upload failed', 400),
             };
         }
-        $url = '/media/' . $projectId . '/' . basename($row['stored_path']);
+        $url = $config->webPath('/media/' . $projectId . '/' . basename($row['stored_path']));
         return JsonResponse::ok([
             'id' => $row['id'],
             'url' => $url,
@@ -622,18 +779,23 @@ final class AdminRoutes
         ], 201);
     }
 
-    public function listMedia(ProjectsRepo $projects, MediaRepo $media): ResponseInterface
+    private static function mediaListResponse(MediaRepo $media, ConfigBag $config, string $projectId): ResponseInterface
+    {
+        $list = $media->list($projectId);
+        foreach ($list as &$m) {
+            $m['url'] = $config->webPath('/media/' . $projectId . '/' . basename($m['stored_path']));
+            $m['referenced'] = $media->isReferenced($projectId, $m['id']);
+        }
+        return JsonResponse::ok(['media' => $list]);
+    }
+
+    public function listMedia(ProjectsRepo $projects, MediaRepo $media, ConfigBag $config): ResponseInterface
     {
         $projectId = $projects->getSetting('active_project_id');
         if (!$projectId) {
             return JsonResponse::ok(['media' => []]);
         }
-        $list = $media->list($projectId);
-        foreach ($list as &$m) {
-            $m['url'] = '/media/' . $projectId . '/' . basename($m['stored_path']);
-            $m['referenced'] = $media->isReferenced($projectId, $m['id']);
-        }
-        return JsonResponse::ok(['media' => $list]);
+        return self::mediaListResponse($media, $config, $projectId);
     }
 
     public function deleteMedia(ProjectsRepo $projects, MediaRepo $media, string $mediaId): ResponseInterface
@@ -680,8 +842,28 @@ final class AdminRoutes
         if (!$projectId) {
             return JsonResponse::error('NOT_FOUND', 'Not found', 404);
         }
+        if (!$users->find($projectId, $userId)) {
+            return JsonResponse::error('NOT_FOUND', 'Participant not found', 404);
+        }
         $users->delete($projectId, $userId);
         return JsonResponse::ok(['ok' => true]);
+    }
+
+    public function resetParticipantAnswers(
+        ProjectsRepo $projects,
+        UsersRepo $users,
+        AnswersRepo $answers,
+        string $userId,
+    ): ResponseInterface {
+        $projectId = $projects->getSetting('active_project_id');
+        if (!$projectId) {
+            return JsonResponse::error('NOT_FOUND', 'Not found', 404);
+        }
+        if (!$users->find($projectId, $userId)) {
+            return JsonResponse::error('NOT_FOUND', 'Participant not found', 404);
+        }
+        $cleared = $answers->clearAll($projectId, $userId);
+        return JsonResponse::ok(['ok' => true, 'cleared' => $cleared]);
     }
 
     public function results(ProjectsRepo $projects, ResultsRepo $results, QuizzesRepo $quizzes, OptionsRepo $options): ResponseInterface
@@ -837,14 +1019,9 @@ final class AdminRoutes
 
     private static function setAdminCookie(ResponseInterface $response, string $token, array $config): ResponseInterface
     {
-        $maxAge = 12 * 3600;
-        $params = "fq_admin={$token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={$maxAge}";
-        if (!empty($config['cookie_domain'])) {
-            $params .= '; Domain=' . $config['cookie_domain'];
-        }
-        if (($config['app_env'] ?? '') === 'production') {
-            $params .= '; Secure';
-        }
-        return $response->withAddedHeader('Set-Cookie', $params);
+        return SessionCookie::apply(
+            $response,
+            SessionCookie::setHeaders('fq_admin', $token, $config, 12 * 3600),
+        );
     }
 }

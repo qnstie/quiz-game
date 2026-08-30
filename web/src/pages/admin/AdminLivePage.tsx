@@ -15,26 +15,30 @@ export function AdminLivePage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="font-display text-3xl font-bold">Live progress</h1>
-      <p className="text-sm text-[var(--color-muted)]">Auto-refreshes every 5 seconds.</p>
-      <ul className="space-y-2">
+      <div>
+        <h1 className="font-display text-2xl font-bold">Live progress</h1>
+        <p className="text-sm text-[var(--color-muted)] mt-1">Auto-refreshes every 5 seconds.</p>
+      </div>
+      <ul className="divide-y divide-[var(--color-line)] border-y border-[var(--color-line)]">
         {data.participants.map((p) => {
           const pct = p.total ? Math.round((p.answered / p.total) * 100) : 0
           return (
-            <li key={p.id} className="rounded-xl border px-4 py-3">
+            <li key={p.id} className="py-4">
               <div className="flex justify-between gap-2 mb-2">
                 <span className="font-semibold">{p.name}</span>
                 <span className="text-sm text-[var(--color-muted)]">
                   {p.answered}/{p.total} · {p.last_seen_at ?? '—'}
                 </span>
               </div>
-              <div className="h-2 rounded-full bg-[var(--color-line)] overflow-hidden">
+              <div className="h-2 bg-[var(--color-line)] overflow-hidden">
                 <div className="h-full bg-[var(--color-accent)]" style={{ width: `${pct}%` }} />
               </div>
             </li>
           )
         })}
-        {data.participants.length === 0 && <p className="text-[var(--color-muted)]">No participants yet.</p>}
+        {data.participants.length === 0 && (
+          <li className="py-4 text-[var(--color-muted)]">No participants yet.</li>
+        )}
       </ul>
     </div>
   )

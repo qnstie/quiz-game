@@ -19,7 +19,7 @@ export function RichContent({ html, className = '' }: { html: string; className?
   return (
     <div
       ref={ref}
-      className={`rich-content prose prose-stone max-w-none dark:prose-invert ${className}`}
+      className={`rich-content prose prose-stone max-w-none text-[var(--color-ink)] ${className}`}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   )

@@ -1,8 +1,10 @@
-import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { api } from '../../api/client'
+import { api, ApiError } from '../../api/client'
 import { ProgressBar } from '../../components/ProgressBar'
+import { writeOutbox } from '../../lib/outbox'
 
 type QuizList = {
   quizzes: { id: string; title: string; answered: boolean }[]
@@ -12,28 +14,47 @@ type QuizList = {
 
 export function QuizzesPage() {
   const { t } = useTranslation()
-  const { data, isLoading } = useQuery({
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['quizzes'],
     queryFn: () => api<QuizList>('/api/quizzes'),
+    refetchInterval: 5_000,
+    staleTime: 0,
   })
 
-  if (isLoading || !data) {
+  const reset = useMutation({
+    mutationFn: () => api('/api/session/reset-answers', { method: 'POST' }),
+    onSuccess: async () => {
+      writeOutbox([])
+      await qc.invalidateQueries({ queryKey: ['quizzes'] })
+      await qc.invalidateQueries({ queryKey: ['quiz'] })
+      await qc.invalidateQueries({ queryKey: ['bootstrap'] })
+    },
+  })
+
+  useEffect(() => {
+    if (isError) navigate('/', { replace: true })
+  }, [isError, navigate])
+
+  if (isError || isLoading || !data) {
     return <p className="py-12 text-center text-[var(--color-muted)]">{t('common.loading')}</p>
   }
 
-  const firstUnanswered = data.quizzes.find((q) => !q.answered)?.id ?? data.quizzes[0]?.id
+  const firstUnanswered = data.quizzes.find((q) => !q.answered)?.id
   const allDone = data.answeredCount === data.total && data.total > 0
+  const hasAnswers = data.answeredCount > 0
 
   return (
     <section className="py-6 space-y-6">
       <div className="flex items-end justify-between gap-4">
         <h1 className="font-display text-3xl font-bold">{t('quizzes.title')}</h1>
-        {firstUnanswered && (
+        {!allDone && firstUnanswered && (
           <Link
             to={`/q/${firstUnanswered}`}
             className="min-h-12 px-4 rounded-xl bg-[var(--color-accent)] text-white font-semibold inline-flex items-center"
           >
-            {data.answeredCount > 0 ? t('quizzes.resume') : t('quizzes.start')}
+            {hasAnswers ? t('quizzes.resume') : t('quizzes.start')}
           </Link>
         )}
       </div>
@@ -54,7 +75,7 @@ export function QuizzesPage() {
           <li key={q.id}>
             <Link
               to={`/q/${q.id}`}
-              className="flex items-center gap-3 min-h-14 rounded-xl border border-[var(--color-line)] px-4 hover:bg-white/50 dark:hover:bg-stone-900"
+              className="flex items-center gap-3 min-h-14 rounded-xl border border-[var(--color-line)] bg-white px-4 hover:border-[var(--color-muted)]"
             >
               <span className="text-[var(--color-muted)] w-6">{i + 1}</span>
               <span className="flex-1 font-medium">{q.title}</span>
@@ -63,6 +84,27 @@ export function QuizzesPage() {
           </li>
         ))}
       </ul>
+
+      {hasAnswers && (
+        <div className="pt-2">
+          <button
+            type="button"
+            className="w-full min-h-12 text-[var(--color-muted)] underline underline-offset-2 hover:text-[var(--color-ink)] disabled:opacity-50"
+            disabled={reset.isPending}
+            onClick={() => {
+              if (!window.confirm(t('quizzes.resetConfirm'))) return
+              reset.mutate()
+            }}
+          >
+            {reset.isPending ? t('common.loading') : t('quizzes.resetAnswers')}
+          </button>
+          {reset.isError && (
+            <p className="text-sm text-red-700 mt-2 text-center">
+              {reset.error instanceof ApiError ? reset.error.message : t('common.error')}
+            </p>
+          )}
+        </div>
+      )}
     </section>
   )
 }

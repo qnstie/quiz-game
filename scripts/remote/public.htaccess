@@ -1,0 +1,19 @@
+# Served from …/public/ (also used when root htaccess maps into public/)
+Options -Indexes
+DirectoryIndex index.html
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Pass Authorization to PHP
+  RewriteCond %{HTTP:Authorization} .
+  RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+  RewriteRule ^(api)(/.*)?$ gateway.php [QSA,L]
+  RewriteRule ^health/?$ gateway.php [QSA,L]
+  RewriteRule ^(media)(/.*)?$ gateway.php [QSA,L]
+
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . index.html [L]
+</IfModule>

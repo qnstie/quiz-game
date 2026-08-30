@@ -1,4 +1,6 @@
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
+const API_BASE =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
+  String(import.meta.env.BASE_URL || '/').replace(/\/$/, '')
 
 export class ApiError extends Error {
   code: string
@@ -15,6 +17,25 @@ export class ApiError extends Error {
 
 type Options = RequestInit & { json?: unknown }
 
+/** Fired when a participant session is no longer valid (kicked / expired). */
+export const PARTICIPANT_UNAUTHORIZED_EVENT = 'fq:participant-unauthorized'
+
+export function clearParticipantSession() {
+  localStorage.removeItem('fq_user_token')
+  try {
+    localStorage.setItem('fq_answer_outbox', '[]')
+  } catch {
+    /* ignore */
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(PARTICIPANT_UNAUTHORIZED_EVENT))
+  }
+}
+
+export function isParticipantUnauthorized(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 401 && e.code === 'UNAUTHENTICATED'
+}
+
 export async function api<T>(path: string, options: Options = {}): Promise<T> {
   const headers = new Headers(options.headers)
   if (options.json !== undefined) {
@@ -29,6 +50,7 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
     ...options,
     headers,
     credentials: 'include',
+    cache: 'no-store',
     body: options.json !== undefined ? JSON.stringify(options.json) : options.body,
   })
 
@@ -46,12 +68,23 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
 
   const data = await res.json()
   if (!res.ok) {
-    throw new ApiError(
+    const err = new ApiError(
       data?.error?.code ?? 'ERROR',
       data?.error?.message ?? 'Request failed',
       res.status,
       data?.error,
     )
+    // Participant was removed or session expired — drop local session so UI can return to join.
+    if (
+      err.status === 401 &&
+      err.code === 'UNAUTHENTICATED' &&
+      path.startsWith('/api/') &&
+      !path.startsWith('/api/admin') &&
+      !path.startsWith('/api/agent')
+    ) {
+      clearParticipantSession()
+    }
+    throw err
   }
   return data as T
 }

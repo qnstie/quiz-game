@@ -11,9 +11,11 @@ use FamilyQuiz\Repo\QuizzesRepo;
 use FamilyQuiz\Repo\ResultsRepo;
 use FamilyQuiz\Repo\UsersRepo;
 use FamilyQuiz\Services\AuthService;
+use FamilyQuiz\Db\Connections;
 use FamilyQuiz\Support\ConfigBag;
 use FamilyQuiz\Support\JsonResponse;
 use FamilyQuiz\Support\Names;
+use FamilyQuiz\Support\SessionCookie;
 use FamilyQuiz\Support\Shuffle;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -31,6 +33,7 @@ final class PublicRoutes
         $app->post('/api/session/join', [self::class, 'join'])
             ->add(new \FamilyQuiz\Middleware\RateLimitMiddleware('join', 10, 60));
         $app->post('/api/session/leave', [self::class, 'leave']);
+        $app->post('/api/session/reset-answers', [self::class, 'resetAnswers']);
         $app->get('/api/quizzes', [self::class, 'listQuizzes']);
         $app->get('/api/quizzes/{quizId}', [self::class, 'getQuiz']);
         $app->put('/api/answers/{quizId}', [self::class, 'putAnswer'])
@@ -57,7 +60,8 @@ final class PublicRoutes
         }
 
         $project = $projects->find($projectId);
-        if (!$project) {
+        if (!$project || !\FamilyQuiz\Services\StateService::isParticipantVisible($project['state'] ?? null)) {
+            // SETUP is not joinable — surface other live/test projects instead of a stuck blocked shell.
             return JsonResponse::ok([
                 'project' => null,
                 'projects' => $projects->listPublicProjects(),
@@ -78,6 +82,9 @@ final class PublicRoutes
             'session' => $participant ? [
                 'displayName' => $participant['name_display'],
                 'userId' => $participant['id'],
+                'answersResetAt' => Connections::userDb($projectId, $participant['id'])
+                    ->query("SELECT value FROM profile WHERE key = 'answers_reset_at'")
+                    ->fetchColumn() ?: null,
             ] : null,
         ]);
     }
@@ -96,8 +103,8 @@ final class PublicRoutes
         if (!$project) {
             return JsonResponse::error('NOT_FOUND', 'Project not found', 404);
         }
-        if ($project['state'] === 'SETUP') {
-            return JsonResponse::error('LOCKED', 'Quiz is being updated', 423, ['currentState' => 'SETUP']);
+        if (!\FamilyQuiz\Services\StateService::isParticipantVisible($project['state'] ?? null)) {
+            return JsonResponse::error('LOCKED', 'Quiz is being updated', 423, ['currentState' => $project['state']]);
         }
 
         $body = (array) ($request->getParsedBody() ?? []);
@@ -134,14 +141,26 @@ final class PublicRoutes
     public function leave(ServerRequestInterface $request, ConfigBag $config): ResponseInterface
     {
         $response = JsonResponse::ok(['ok' => true]);
-        $params = 'fq_user=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0';
-        if (!empty($config->get('cookie_domain'))) {
-            $params .= '; Domain=' . $config->get('cookie_domain');
+        return SessionCookie::apply(
+            $response,
+            SessionCookie::clearHeaders('fq_user', $config->all()),
+        );
+    }
+
+    public function resetAnswers(
+        ServerRequestInterface $request,
+        ProjectsRepo $projects,
+        AnswersRepo $answers,
+    ): ResponseInterface {
+        [$project, $user, $err] = $this->requireActiveParticipant($request, $projects);
+        if ($err) {
+            return $err;
         }
-        if ($config->get('app_env') === 'production') {
-            $params .= '; Secure';
+        if (!\FamilyQuiz\Services\StateService::isAnswerable($project['state'] ?? null)) {
+            return JsonResponse::error('LOCKED', 'Answers closed', 423, ['currentState' => $project['state']]);
         }
-        return $response->withAddedHeader('Set-Cookie', $params);
+        $cleared = $answers->clearAll($project['id'], $user['id']);
+        return JsonResponse::ok(['ok' => true, 'cleared' => $cleared]);
     }
 
     public function listQuizzes(
@@ -196,13 +215,15 @@ final class PublicRoutes
 
         $opts = $options->listForQuiz($project['id'], $quizId);
         if ((int) $quiz['shuffle_options'] === 1) {
-            $opts = Shuffle::seededShuffle($opts, (int) $user['shuffle_seed'], $quizId);
+            // Re-index so JSON stays a dense array in shuffled display order
+            // (and never accidentally re-sorts by original position keys).
+            $opts = array_values(Shuffle::seededShuffle($opts, (int) $user['shuffle_seed'], $quizId));
         }
 
         $revealed = $project['state'] === 'REVEALED';
         $answer = $answers->getAnswer($project['id'], $user['id'], $quizId);
 
-        $publicOpts = array_map(static function ($o) use ($revealed) {
+        $publicOpts = array_values(array_map(static function ($o) use ($revealed) {
             $row = [
                 'id' => $o['id'],
                 'label_html' => $o['label_html'],
@@ -212,7 +233,7 @@ final class PublicRoutes
                 $row['feedback_html'] = $o['feedback_html'];
             }
             return $row;
-        }, $opts);
+        }, $opts));
 
         $payload = [
             'id' => $quiz['id'],
@@ -240,7 +261,7 @@ final class PublicRoutes
         if ($err) {
             return $err;
         }
-        if ($project['state'] !== 'ACTIVE') {
+        if (!\FamilyQuiz\Services\StateService::isAnswerable($project['state'] ?? null)) {
             return JsonResponse::error('LOCKED', 'Answers closed', 423, ['currentState' => $project['state']]);
         }
 
@@ -365,7 +386,12 @@ final class PublicRoutes
         if (!preg_match('/^[a-f0-9\-]+\.[a-z0-9]+$/i', $file)) {
             return JsonResponse::error('NOT_FOUND', 'Not found', 404);
         }
-        $path = \FamilyQuiz\Db\Connections::projectDir($projectId) . '/media/' . $file;
+        $base = \FamilyQuiz\Db\Connections::projectDir($projectId);
+        $path = $base . '/uploads/' . $file;
+        if (!is_file($path)) {
+            // Legacy uploads stored under media/
+            $path = $base . '/media/' . $file;
+        }
         if (!is_file($path)) {
             return JsonResponse::error('NOT_FOUND', 'Not found', 404);
         }
@@ -394,8 +420,8 @@ final class PublicRoutes
         if (!$project) {
             return [null, null, JsonResponse::error('NOT_FOUND', 'Project not found', 404)];
         }
-        if ($project['state'] === 'SETUP') {
-            return [null, null, JsonResponse::error('LOCKED', 'Quiz is being updated', 423, ['currentState' => 'SETUP'])];
+        if (!\FamilyQuiz\Services\StateService::isParticipantVisible($project['state'] ?? null)) {
+            return [null, null, JsonResponse::error('LOCKED', 'Quiz is being updated', 423, ['currentState' => $project['state'] ?? 'SETUP'])];
         }
         if (!$user) {
             return [null, null, JsonResponse::error('UNAUTHENTICATED', 'Join first', 401)];
@@ -405,14 +431,9 @@ final class PublicRoutes
 
     private static function setUserCookie(ResponseInterface $response, string $token, array $config): ResponseInterface
     {
-        $maxAge = 90 * 24 * 3600;
-        $params = "fq_user={$token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={$maxAge}";
-        if (!empty($config['cookie_domain'])) {
-            $params .= '; Domain=' . $config['cookie_domain'];
-        }
-        if (($config['app_env'] ?? '') === 'production') {
-            $params .= '; Secure';
-        }
-        return $response->withAddedHeader('Set-Cookie', $params);
+        return SessionCookie::apply(
+            $response,
+            SessionCookie::setHeaders('fq_user', $token, $config, 90 * 24 * 3600),
+        );
     }
 }

@@ -14,7 +14,7 @@ CREATE TABLE projects (
   slug            TEXT NOT NULL UNIQUE,
   title           TEXT NOT NULL,
   state           TEXT NOT NULL DEFAULT 'SETUP'
-                  CHECK (state IN ('SETUP','ACTIVE','CLOSED','REVEALED')),
+                  CHECK (state IN ('SETUP','TEST','ACTIVE','CLOSED','REVEALED')),
   db_path         TEXT NOT NULL,
   shuffle_quizzes INTEGER NOT NULL DEFAULT 0,
   require_pin     INTEGER NOT NULL DEFAULT 0,

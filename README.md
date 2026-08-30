@@ -26,6 +26,12 @@ Admin seed (from config): see `seed_admin_email` / `seed_admin_password`. Change
 
 That signs you in as the seed admin (or the first active superuser) and lands on Projects.
 
+**Agent API (for LLMs / scripts):** same token (or optional `agent_api_token`). See [docs/agent-api.md](docs/agent-api.md). Quick check:
+
+```bash
+curl -s -H "Authorization: Bearer YOUR_TOKEN" http://127.0.0.1:8080/api/agent | jq
+```
+
 ```bash
 npm run typecheck && npm run test && npm run build
 composer -d server test
@@ -34,30 +40,22 @@ php scripts/smoke-test-locking.php
 
 ## DreamHost deploy
 
+**Live URL:** [https://www.kunstman.net/familyquiz/](https://www.kunstman.net/familyquiz/)  
+**Staging:** [https://www.kunstman.net/familyquiz-dev/](https://www.kunstman.net/familyquiz-dev/)
+
 **Production account (confirmed):**
 - SSH: `kunstman@iad1-shared-b7-31.dreamhost.com` (key already registered)
-- App root: `/home/kunstman/www/familyquiz`
+- App root: `/home/kunstman/www/familyquiz` (subdirectory of `www.kunstman.net`)
 
-1. Create two domains/subdomains (e.g. `quiz.example.com` + `api.quiz.example.com`).
-2. Point SPA Web Directory to a `public/` under the app root (or as arranged in the panel).
-3. Point API Web Directory to `…/api/public` under the same tree.
-4. Keep SQLite data **outside** any web root (e.g. `/home/kunstman/quiz-data`). Copy `server/config.php.example` → `config.php` on the server (chmod 600) and set paths/secrets. `App::create()` loads `server/config.php` relative to the API tree.
-5. Select PHP 8.3 for the API domain. Confirm `intl`, `gd`, `pdo_sqlite`, `fileinfo`.
-6. Issue Let's Encrypt for both hosts.
-7. Deploy:
+The domain docroot is `/home/kunstman/www`. App-root `.htaccess` serves `public/`, proxies `/api` `/health` `/media` through `gateway.php`, and blocks `config.php` + raw `api/`.
+
+Deploy:
 
 ```bash
-REMOTE=kunstman@iad1-shared-b7-31.dreamhost.com \
-SPA_DIR=/home/kunstman/www/familyquiz/public \
-API_DIR=/home/kunstman/www/familyquiz/api \
-./scripts/deploy.sh
+./scripts/deploy.sh          # production
+./scripts/deploy.sh both     # production + staging
 ```
 
-Adjust `SPA_DIR` / `API_DIR` if the panel Web Directory layout differs from the plan’s subdomain split.
-
-8. Run `php scripts/smoke-test-locking.php /home/kunstman/quiz-data/_smoke` on the server once.
-
-Cron (panel): nightly backup of `quiz-data` using `sqlite3 file '.backup …'` per DB, then tar.
 
 ## Restore
 

@@ -20,10 +20,16 @@
     "resume": "Kontynuuj",
     "summaryTitle": "To już wszystko!",
     "summaryBody": "Odpowiedziałeś/aś na {{answered}} z {{total}}",
-    "unanswered": "Przejdź do bez odpowiedzi"
+    "unanswered": "Przejdź do bez odpowiedzi",
+    "resetAnswers": "Wyczyść wszystkie odpowiedzi i zacznij od nowa",
+    "resetConfirm": "Wyczyścić wszystkie odpowiedzi i zacząć od początku?"
   },
   "quiz": {
     "progressTap": "Lista pytań",
+    "backToList": "Wszystkie pytania",
+    "previous": "Poprzednie pytanie",
+    "submit": "Zapisz odpowiedź",
+    "autoAdvance": "Przechodź automatycznie do następnego pytania po odpowiedzi",
     "submitting": "Zapisywanie…",
     "saved": "Zapisano"
   },

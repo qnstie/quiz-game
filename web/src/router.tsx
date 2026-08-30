@@ -15,8 +15,9 @@ import { AdminPresentPage } from './pages/admin/AdminPresentPage'
 import { AdminUsersPage } from './pages/admin/AdminUsersPage'
 
 export function AppRouter() {
+  const basename = import.meta.env.BASE_URL.replace(/\/$/, '') || undefined
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <Routes>
         <Route element={<ParticipantShell />}>
           <Route path="/" element={<LandingPage />} />

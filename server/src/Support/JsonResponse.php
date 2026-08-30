@@ -27,6 +27,13 @@ final class JsonResponse
             $response = $response->withStatus(500);
         }
         $response->getBody()->write($payload);
-        return $response->withHeader('Content-Type', 'application/json; charset=utf-8');
+        return $response
+            ->withHeader('Content-Type', 'application/json; charset=utf-8')
+            // DreamHost/Apache may otherwise apply a long max-age to GETs, so clients
+            // would keep showing stale project state / unshuffled options after mutations.
+            ->withHeader('Cache-Control', 'private, no-store, no-cache, must-revalidate, max-age=0')
+            ->withHeader('Pragma', 'no-cache')
+            ->withHeader('Expires', '0')
+            ->withHeader('Vary', 'Cookie, Authorization, X-FQ-Token');
     }
 }
