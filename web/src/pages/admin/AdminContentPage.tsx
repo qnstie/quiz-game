@@ -18,7 +18,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowLeft, Copy, Eye, GripVertical, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, Copy, Download, Eye, GripVertical, Plus, Trash2, Upload } from 'lucide-react'
 import { api, ApiError } from '../../api/client'
 import { HtmlPreviewPane, QuizPreviewModal } from '../../components/QuizPreview'
 import { TipTapEditor } from '../../components/TipTapEditor'
@@ -83,7 +83,7 @@ function SortableQuizRow({
         <input
           type="checkbox"
           checked={selected}
-          disabled={locked}
+          disabled={false}
           onChange={() => onToggle(quiz.id)}
           aria-label={`Select ${quiz.title}`}
         />
@@ -234,6 +234,7 @@ export function AdminContentPage() {
   const [copyTarget, setCopyTarget] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [previewQuiz, setPreviewQuiz] = useState<Quiz | null>(null)
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   const projectsQ = useQuery({
     queryKey: ['admin-projects'],
@@ -338,6 +339,41 @@ export function AdminContentPage() {
     onError: (e: unknown) => setError(e instanceof ApiError ? `${e.code}: ${e.message}` : 'Delete failed'),
   })
 
+  const exportPack = useMutation({
+    mutationFn: async (quizIds: string[]) => {
+      const blob = await api<Blob>(`/api/admin/projects/${projectId}/quizzes/export-pack`, {
+        method: 'POST',
+        json: { quizIds },
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = quizIds.length === 1 ? 'quiz.zip' : `quizzes-${quizIds.length}.zip`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    },
+    onError: (e: unknown) => setError(e instanceof ApiError ? `${e.code}: ${e.message}` : 'Export failed'),
+  })
+
+  const importPack = useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData()
+      form.append('file', file)
+      return api<{ created: number }>(`/api/admin/projects/${projectId}/quizzes/import-pack`, {
+        method: 'POST',
+        body: form,
+      })
+    },
+    onSuccess: (res) => {
+      setError(null)
+      invalidate()
+      window.alert(`Imported ${res.created} quiz${res.created === 1 ? '' : 'zes'}.`)
+    },
+    onError: (e: unknown) => setError(e instanceof ApiError ? `${e.code}: ${e.message}` : 'Import failed'),
+  })
+
   if (!projectId) return <p>Select an active project first.</p>
   if (isLoading || !data) return <p>Loading…</p>
 
@@ -346,7 +382,6 @@ export function AdminContentPage() {
   const allSelected = items.length > 0 && selected.size === items.length
 
   const toggle = (id: string) => {
-    if (locked) return
     setSelected((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
@@ -356,7 +391,6 @@ export function AdminContentPage() {
   }
 
   const toggleAll = () => {
-    if (locked) return
     if (allSelected) setSelected(new Set())
     else setSelected(new Set(items.map((q) => q.id)))
   }
@@ -395,15 +429,44 @@ export function AdminContentPage() {
             )}
           </p>
         </div>
-        <button
-          type="button"
-          className="btn-primary disabled:opacity-40"
-          disabled={locked || create.isPending}
-          onClick={() => create.mutate()}
-        >
-          <Plus size={16} aria-hidden />
-          Add quiz
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <a
+            className="btn-secondary min-h-10 text-sm"
+            href={`${import.meta.env.BASE_URL}examples/quizzes-import.json`}
+            download="quizzes-import.json"
+          >
+            JSON example
+          </a>
+          <button
+            type="button"
+            className="btn-secondary disabled:opacity-40"
+            disabled={locked || importPack.isPending}
+            onClick={() => importInputRef.current?.click()}
+          >
+            <Upload size={16} aria-hidden />
+            Import JSON/ZIP
+          </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".json,.zip,application/json,application/zip"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              e.target.value = ''
+              if (file) importPack.mutate(file)
+            }}
+          />
+          <button
+            type="button"
+            className="btn-primary disabled:opacity-40"
+            disabled={locked || create.isPending}
+            onClick={() => create.mutate()}
+          >
+            <Plus size={16} aria-hidden />
+            Add quiz
+          </button>
+        </div>
       </div>
 
       {locked && (
@@ -414,9 +477,20 @@ export function AdminContentPage() {
 
       {error && <p className="text-sm text-red-700">{error}</p>}
 
-      {!locked && selectedIds.length > 0 && (
+      {selectedIds.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 border border-[var(--color-line)] bg-white p-3">
           <span className="text-sm font-semibold mr-2">{selectedIds.length} selected</span>
+          <button
+            type="button"
+            className="btn-secondary min-h-9 text-sm"
+            onClick={() => exportPack.mutate(selectedIds)}
+            disabled={exportPack.isPending}
+          >
+            <Download size={14} aria-hidden />
+            Export ZIP
+          </button>
+          {!locked && (
+            <>
           <button
             type="button"
             className="btn-secondary min-h-9 text-sm"
@@ -457,6 +531,8 @@ export function AdminContentPage() {
             <Trash2 size={14} aria-hidden />
             Delete
           </button>
+            </>
+          )}
         </div>
       )}
 
@@ -472,7 +548,7 @@ export function AdminContentPage() {
                     <input
                       type="checkbox"
                       checked={allSelected}
-                      disabled={locked}
+                      disabled={false}
                       onChange={toggleAll}
                       aria-label="Select all"
                     />

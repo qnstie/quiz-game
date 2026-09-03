@@ -1,0 +1,48 @@
+{
+  "format": "family-quiz-content",
+  "version": 1,
+  "quizzes": [
+    {
+      "title": "Who invented the telephone?",
+      "description_html": "<p>Pick the best answer. You can embed an image with <code>&lt;img src=\"https://example.com/photo.jpg\"&gt;</code> or upload files in the editor after import.</p>",
+      "explanation_html": "<p>Alexander Graham Bell is credited with the first practical telephone (1876).</p>",
+      "points": 1,
+      "shuffle_options": true,
+      "options": [
+        {
+          "label_html": "<p>Alexander Graham Bell</p>",
+          "is_correct": true,
+          "feedback_html": "<p>Correct.</p>"
+        },
+        {
+          "label_html": "<p>Thomas Edison</p>",
+          "is_correct": false,
+          "feedback_html": "<p>Edison improved many things — not this one.</p>"
+        },
+        {
+          "label_html": "<p>Nikola Tesla</p>",
+          "is_correct": false,
+          "feedback_html": ""
+        },
+        {
+          "label_html": "<p>Guglielmo Marconi</p>",
+          "is_correct": false,
+          "feedback_html": ""
+        }
+      ]
+    },
+    {
+      "title": "A second quiz in the same file",
+      "description_html": "<p>You can put many quizzes in one JSON file. Each must have <strong>exactly four</strong> options and <strong>exactly one</strong> <code>is_correct: true</code>.</p>",
+      "explanation_html": "",
+      "points": 1,
+      "shuffle_options": false,
+      "options": [
+        { "label_html": "<p>Option A</p>", "is_correct": false, "feedback_html": "" },
+        { "label_html": "<p>Option B</p>", "is_correct": true, "feedback_html": "" },
+        { "label_html": "<p>Option C</p>", "is_correct": false, "feedback_html": "" },
+        { "label_html": "<p>Option D</p>", "is_correct": false, "feedback_html": "" }
+      ]
+    }
+  ]
+}

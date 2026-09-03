@@ -15,6 +15,7 @@ use FamilyQuiz\Repo\ResultsRepo;
 use FamilyQuiz\Repo\SuperusersRepo;
 use FamilyQuiz\Repo\UsersRepo;
 use FamilyQuiz\Services\AuthService;
+use FamilyQuiz\Services\ContentPackService;
 use FamilyQuiz\Services\ExportService;
 use FamilyQuiz\Services\LockedException;
 use FamilyQuiz\Services\MediaService;
@@ -62,6 +63,9 @@ final class AdminRoutes
             $group->post('/projects/{id}/quizzes/reorder', [self::class, 'reorderQuizzes']);
             $group->post('/projects/{id}/quizzes/clone', [self::class, 'cloneQuizzes']);
             $group->post('/projects/{id}/quizzes/copy', [self::class, 'copyQuizzes']);
+            $group->post('/projects/{id}/quizzes/export-pack', [self::class, 'exportQuizPack']);
+            $group->post('/projects/{id}/quizzes/import-pack', [self::class, 'importQuizPack'])
+                ->add(new RateLimitMiddleware('uploads', 30, 3600));
             $group->post('/projects/{id}/quizzes/batch-delete', [self::class, 'batchDeleteQuizzes']);
             $group->get('/quizzes/{quizId}', [self::class, 'getQuiz']);
             $group->patch('/quizzes/{quizId}', [self::class, 'patchQuiz']);
@@ -552,6 +556,103 @@ final class AdminRoutes
             }
         }
         return JsonResponse::ok(['quizzes' => $created, 'targetProjectId' => $targetId], 201);
+    }
+
+    public function exportQuizPack(
+        ServerRequestInterface $request,
+        ProjectsRepo $projects,
+        ContentPackService $pack,
+        string $id,
+    ): ResponseInterface {
+        $project = $projects->find($id);
+        if (!$project) {
+            return JsonResponse::error('NOT_FOUND', 'Not found', 404);
+        }
+        $body = (array) ($request->getParsedBody() ?? []);
+        $quizIds = $body['quizIds'] ?? [];
+        if (!is_array($quizIds) || $quizIds === []) {
+            return JsonResponse::error('VALIDATION', 'quizIds required', 400);
+        }
+        try {
+            $built = $pack->exportZip($id, array_map('strval', $quizIds));
+        } catch (\InvalidArgumentException $e) {
+            return JsonResponse::error('VALIDATION', $e->getMessage(), 400);
+        }
+        $bin = (string) file_get_contents($built['path']);
+        @unlink($built['path']);
+        $response = new \Slim\Psr7\Response(200);
+        $response->getBody()->write($bin);
+        $filename = str_replace(['"', "\r", "\n"], '', $built['filename']);
+        return $response
+            ->withHeader('Content-Type', 'application/zip')
+            ->withHeader('Content-Disposition', 'attachment; filename="' . $filename . '"');
+    }
+
+    public function importQuizPack(
+        ServerRequestInterface $request,
+        ProjectsRepo $projects,
+        ContentPackService $pack,
+        StateService $state,
+        string $id,
+    ): ResponseInterface {
+        $project = $projects->find($id);
+        if (!$project) {
+            return JsonResponse::error('NOT_FOUND', 'Not found', 404);
+        }
+        try {
+            $state->assertContentMutable($project);
+        } catch (LockedException $e) {
+            return JsonResponse::error('LOCKED', 'Switch to SETUP or TEST to import', 423, ['currentState' => $e->currentState]);
+        }
+        $admin = $request->getAttribute('admin');
+        $uploadedBy = is_array($admin) ? (string) ($admin['id'] ?? '') : null;
+
+        $files = $request->getUploadedFiles();
+        $file = $files['file'] ?? null;
+        if ($file) {
+            $clientName = strtolower((string) $file->getClientFilename());
+            $tempPath = tempnam(sys_get_temp_dir(), 'fqimp');
+            $file->moveTo($tempPath);
+            try {
+                if (str_ends_with($clientName, '.zip') || self::looksLikeZip($tempPath)) {
+                    $result = $pack->importZip($id, $tempPath, $uploadedBy);
+                } else {
+                    $raw = (string) file_get_contents($tempPath);
+                    $decoded = json_decode($raw, true);
+                    if (!is_array($decoded)) {
+                        return JsonResponse::error('VALIDATION', 'File must be a ZIP pack or JSON', 400);
+                    }
+                    $result = $pack->importJson($id, $decoded, $uploadedBy);
+                }
+            } catch (\InvalidArgumentException $e) {
+                return JsonResponse::error('VALIDATION', $e->getMessage(), 400);
+            } finally {
+                @unlink($tempPath);
+            }
+            return JsonResponse::ok($result, 201);
+        }
+
+        $body = $request->getParsedBody();
+        if (!is_array($body) || $body === []) {
+            return JsonResponse::error('VALIDATION', 'Upload a .zip or .json file, or POST JSON', 400);
+        }
+        try {
+            $result = $pack->importJson($id, $body, $uploadedBy);
+        } catch (\InvalidArgumentException $e) {
+            return JsonResponse::error('VALIDATION', $e->getMessage(), 400);
+        }
+        return JsonResponse::ok($result, 201);
+    }
+
+    private static function looksLikeZip(string $path): bool
+    {
+        $fh = fopen($path, 'rb');
+        if ($fh === false) {
+            return false;
+        }
+        $magic = fread($fh, 4);
+        fclose($fh);
+        return $magic === "PK\x03\x04" || $magic === "PK\x05\x06";
     }
 
     public function batchDeleteQuizzes(
